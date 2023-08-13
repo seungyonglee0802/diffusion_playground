@@ -23,6 +23,7 @@ from IPython.display import clear_output
 from functools import partial
 
 from unet import UNetModel
+from dataset import MNISTDataset, GuidedMNISTDataset
 
 
 class Model(nn.Module):
@@ -40,15 +41,7 @@ class Model(nn.Module):
         self.alpha_bars = torch.cumprod(
             1 - torch.linspace(start=beta_1, end=beta_T, steps=T), dim=0).to(device=device)
         self.backbone = UNetModel(**kwargs).to(device)
-        # image_size=128,
-        # in_channels=3,
-        # model_channels=128,
-        # out_channels=3,
-        # num_res_blocks=2,
-        # attention_resolutions=(4, 8),
-        # dropout=0.0,
-        # channel_mult=(1, 2, 4, 8),
-        # num_heads=8,
+
         self.to(device=self.device)
 
         self.in_training = True
@@ -162,16 +155,26 @@ def imshow(sample, sampling_number):
     plt.show()
 
 
-def train(model, optim, dataloader, device, MAX_EPOCH):
+def train(model, optim, dataloader, device, MAX_EPOCH, use_guide=False):
     start = time.time()
 
-    for epoch in range(MAX_EPOCH):
-        for idx, (x, _) in enumerate(dataloader):
-            x = x.to(device)
-            loss = model.loss_fn(x)
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
+    if use_guide:
+        for epoch in range(MAX_EPOCH):
+            for idx, (x, guide, _) in enumerate(dataloader):
+                x = x.to(device)
+                guide = guide.to(device)
+                loss = model.loss_fn(torch.cat([x, guide], dim=1))
+                optim.zero_grad()
+                loss.backward()
+                optim.step()
+    else:
+        for epoch in range(MAX_EPOCH):
+            for idx, (x, _) in enumerate(dataloader):
+                x = x.to(device)
+                loss = model.loss_fn(x)
+                optim.zero_grad()
+                loss.backward()
+                optim.step()
 
         if epoch % 1 == 0:
             print(f'Epoch : {epoch}, Loss : {loss.item()}')
@@ -196,21 +199,35 @@ def inference(model, device, beta_1, beta_T, T, sampling_batch, shape):
 
 
 if __name__ == '__main__':
+    # Hyperparameter
     beta_1 = 1e-4
     beta_T = 0.02
     T = 500
     C, H, W = 1, 16, 16
-
     MAX_EPOCH = 10
+
+    # DataSet
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((H, W)),
+        torchvision.transforms.ToTensor()
+    ])
+    dataset = GuidedMNISTDataset(
+        './MNIST',
+        transform=transform,
+        guide_slice=(slice(0, 8), slice(0, 8))
+    )
+    guide_channel = dataset.guide_channel or 0
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Model
     model = Model(
         device,
         beta_1,
         beta_T,
         T,
         image_size=H,
-        in_channels=C,
+        in_channels=C + guide_channel,
         model_channels=128,
         out_channels=C,
         num_res_blocks=2,
@@ -219,17 +236,12 @@ if __name__ == '__main__':
         channel_mult=(1, 2, 4, 8),
         num_heads=8
     )
+
     optim = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    transform = torchvision.transforms.Compose([
-        torchvision.transforms.Resize((H, W)),
-        torchvision.transforms.ToTensor()
-    ])
-
-    dataset = torchvision.datasets.MNIST(
-        root='./MNIST', train=True, download=True, transform=transform)
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=128, drop_last=True, num_workers=0)
 
-    # train(model, optim, dataloader, device, MAX_EPOCH)
+    train(model, optim, dataloader, device,
+          MAX_EPOCH, use_guide=guide_channel > 0)
     inference(model, device, beta_1, beta_T, T, 16, shape=(C, H, W))
