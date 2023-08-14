@@ -17,6 +17,16 @@ run
 python ddpm.py
 ```
 
+## Demo History
+### [x] Demo 1: Enable Diffusion Model
+
+### [x] Demo 2: Add initial condition (i.e. `guide`) with channel-wise concatenation
+
+### [ ] Demo 3: Add embedding condition in ResBlock
+
+### [ ] Demo 4: Add pre-defined context condition in TransformerBlock
+
+
 ## References
 [ComVis/latent-diffusion](https://github.com/CompVis/latent-diffusion)
 
