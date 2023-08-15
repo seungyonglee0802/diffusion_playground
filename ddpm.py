@@ -45,22 +45,25 @@ class Model(nn.Module):
         self.to(device=self.device)
 
         self.in_training = True
+        self.use_emb = self.backbone.num_classes is not None
 
-    def loss_fn(self, x, guide=None):
+    def loss_fn(self, x, guide=None, emb=None):
         """
         This function performed when only training phase.
 
         x   : perturbated data
         guide : guide image (concatenated to x)
+        emb : embedding (added to time embedding)
         """
         time_step = torch.randint(0, len(self.alpha_bars), (x.size(0),)).to(
             device=self.device
         )
-        output, epsilon = self.forward(x, time_step=time_step, guide=guide)
+        output, epsilon = self.forward(
+            x, time_step=time_step, guide=guide, emb=emb if self.use_emb else None)
         loss = (output - epsilon).square().mean()
         return loss
 
-    def forward(self, x, time_step, guide=None):
+    def forward(self, x, time_step, guide=None, emb=None):
         if self.in_training:
             used_alpha_bars = self.alpha_bars[time_step][:, None, None, None]
             epsilon = torch.randn_like(x)
@@ -79,7 +82,9 @@ class Model(nn.Module):
         if guide is not None:
             x_tilde = torch.cat([x_tilde, guide], dim=1)
 
-        output = self.backbone(x_tilde, time_step)
+        # FIXME: emb is not embedding but just class label
+        # x, timesteps, context=None, y=None
+        output = self.backbone(x_tilde, time_step, y=emb)
 
         if self.in_training:
             return output, epsilon
@@ -219,10 +224,11 @@ def train(model, optim, dataloader, device, MAX_EPOCH):
     start = time.time()
 
     for epoch in range(MAX_EPOCH):
-        for idx, (x, guide, _) in enumerate(dataloader):
+        for idx, (x, guide, label) in enumerate(dataloader):
             x = x.to(device)
             guide = guide.to(device) if guide is not None else None
-            loss = model.loss_fn(x, guide)
+            label = label.to(device)
+            loss = model.loss_fn(x, guide, label)
             optim.zero_grad()
             loss.backward()
             optim.step()
@@ -296,6 +302,7 @@ if __name__ == "__main__":
         dropout=0.0,
         channel_mult=(1, 2, 4, 8),
         num_heads=8,
+        num_classes=10,  # active to use label as embedding
     )
 
     optim = torch.optim.Adam(model.parameters(), lr=0.0001)
