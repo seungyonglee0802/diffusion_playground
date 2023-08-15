@@ -1,0 +1,16 @@
+unet_config:
+  _target_: unet.UNetModel
+  _partial_: true
+  model_channels: 128
+  num_res_blocks: 2
+  attention_resolutions:
+    - 4
+    - 8
+  dropout: 0.0
+  channel_mult:
+    - 1
+    - 2
+    - 4
+    - 8
+  num_heads: 8
+  num_classes: None # 10 classes for MNIST or None for unconditional

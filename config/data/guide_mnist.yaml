@@ -1,0 +1,13 @@
+transform_config:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: torchvision.transforms.Resize
+      size: 16
+    - _target_: torchvision.transforms.ToTensor
+
+dataset_config:
+  _target_: dataset.GuidedMNISTDataset
+  _partial_: true
+  root: './MNIST'
+  transform: {transform_config}
+  guide_slice: (slice(0, 8), slice(0, 8))
