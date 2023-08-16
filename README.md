@@ -18,11 +18,34 @@ python ddpm.py
 ```
 
 ## Demo History
-### [x] Demo 1: Enable Diffusion Model
+### ✅ Demo 1: Enable Diffusion Model
 
-### [x] Demo 2: Add initial condition (i.e. `guide`) with channel-wise concatenation
+![demo1](./MNIST_diffusion/deprecated/sample_01.png)
 
-### [ ] Demo 3: Add embedding condition in ResBlock
+### ✅ Demo 2: Add initial condition (i.e. `guide`) with channel-wise concatenation
+
+* left: guide, right: generated image
+
+1. Full guide
+
+![demo2](./MNIST_diffusion/deprecated/sample_02.png)
+
+2. Half (Top) guide
+
+![demo2](./MNIST_diffusion/deprecated/sample_03.png)
+
+3. Quarter (Top-Left) guide
+
+![demo2](./MNIST_diffusion/deprecated/sample_04.png)
+
+
+### ✅ Demo 3: Add embedding condition in ResBlock
+
+1. Quarter (Top-Left) guide with class embedding
+
+![demo3](./MNIST_diffusion/sample_quater_guide_label_emb.png)
+
+Model could generate MNIST image with given label (class) embedding. 
 
 ### [ ] Demo 4: Add pre-defined context condition in TransformerBlock
 
