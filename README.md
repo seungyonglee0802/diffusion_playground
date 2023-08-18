@@ -47,7 +47,13 @@ python ddpm.py
 
 Model could generate MNIST image with given label (class) embedding. 
 
-### [ ] Demo 4: Add pre-defined context condition in TransformerBlock
+### ✅ Demo 4: Add context condition in TransformerBlock
+
+1. Quarter (Top-Left) guide with class embedding and context condition
+
+![demo4](./MNIST_diffusion/sample_quater_guide_label_context.png)
+
+Model could generate MNIST image with given label (class) embedding and context condition.
 
 
 ## References
