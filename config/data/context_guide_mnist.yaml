@@ -1,0 +1,16 @@
+dataset:
+  _target_: dataset.ContextGuidedMNISTDataset
+  _partial_: true
+  root: './MNIST'
+  context_root: './MNIST_context'
+  transform:
+    _target_: torchvision.transforms.Compose
+    transforms:
+      - _target_: torchvision.transforms.Resize
+        size: 16
+      - _target_: torchvision.transforms.ToTensor
+  guide_slice:
+    - 0
+    - 8
+    - 0
+    - 8
