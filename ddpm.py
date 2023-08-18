@@ -5,6 +5,7 @@ import numpy as np
 from einops import rearrange, repeat
 from functools import partial
 from tqdm import tqdm
+import torchvision.transforms as transforms
 from torchvision.utils import make_grid
 
 import matplotlib.pyplot as plt
@@ -18,6 +19,8 @@ import time
 import os
 
 from util import make_beta_schedule, extract_into_tensor, noise_like
+
+from resnet import resnet2
 
 
 class DDPM(nn.Module):
@@ -467,55 +470,80 @@ class DDPM(nn.Module):
         return opt
 
 
-def train(ddpm_process, train_loader, max_epochs=100, learning_rate=1e-4):
+def train(ddpm_process, train_loader, max_epochs=100, learning_rate=1e-4, context_network=None):
     start = time.time()
 
     ddpm_process.learning_rate = learning_rate
     opt = ddpm_process.configure_optimizers()
 
+    best_loss = float('inf')  # Set initial best loss to infinity
+    best_model_state = None  # Store the best model's state_dict here
+    best_context_network_state = None  # Store the best context network's state_dict here
+
     for epoch in range(max_epochs):
-        for idx, (x, guide, label) in enumerate(train_loader):
+        for idx, (x, guide, context, label) in enumerate(train_loader):
             x = x.to(ddpm_process.device)
             guide = guide.to(
                 ddpm_process.device) if guide is not None else None
+            context = context.to(ddpm_process.device)
+            context = context_network(context) if context_network is not None else context
             label = label.to(ddpm_process.device)
-            loss = ddpm_process(x, guide=guide, emb=label)
+            loss = ddpm_process(x, guide=guide, context=context, emb=label)
             opt.zero_grad()
             loss.backward()
             opt.step()
 
         print(f"Epoch {epoch} loss: {loss.item()}")
 
+        # Save best model (lowest loss) in memory
+        if loss.item() < best_loss:
+            best_loss = loss.item()
+            best_model_state = ddpm_process.state_dict()
+            if context_network is not None:
+                best_context_network_state = context_network.state_dict()
+
     end = time.time()
     print(f"Training time: {end - start}")
 
+    # Save the best model weights to file at the end of training
     if os.path.exists("./model") is False:
         os.mkdir("./model")
+
+    if best_model_state is not None:
+        torch.save(best_model_state, f"./model/model_best.pth")
+
+    if context_network is not None and best_context_network_state is not None:
+        torch.save(best_context_network_state, f"./model/context_network_best.pth")
+
+    # Save the final model weights as well, if desired
     torch.save(ddpm_process.state_dict(), f"./model/model_final.pth")
+    if context_network is not None:
+        torch.save(context_network.state_dict(), f"./model/context_network_final.pth")
 
 
-def inference(ddpm_process, sampling_batch, return_intermediates=False, val_dataset=None):
+def inference(ddpm_process, sampling_batch, return_intermediates=False, val_dataset=None, context_network=None):
     # load model
     ddpm_process.load_state_dict(torch.load("./model/model_final.pth"))
+    if context_network is not None:
+        context_network.load_state_dict(torch.load("./model/context_network_final.pth"))
 
     # inference
     if val_dataset:
         val_loader = DataLoader(
             val_dataset, batch_size=sampling_batch, shuffle=None
         )
-        _, guide, label = next(iter(val_loader))
+        _, guide, context, label = next(iter(val_loader))
         guide = guide.to(ddpm_process.device)
+        context = context.to(ddpm_process.device)
+        _context = context_network(context) if context_network is not None else context
         label = label.to(ddpm_process.device)
 
-        print("guide shape: ", guide.shape)
-
-    print(type(ddpm_process))
     ddpm_process.eval()
     with torch.no_grad():
         samples = ddpm_process.sample(
             batch_size=sampling_batch,
             guide=guide,
-            context=None,
+            context=_context,
             emb=label,
             return_intermediates=return_intermediates
         )
@@ -524,14 +552,13 @@ def inference(ddpm_process, sampling_batch, return_intermediates=False, val_data
         samples, denoise_row = samples
         return guide, samples, denoise_row
     
-    return guide, samples
+    return guide, context, samples
 
 def imshow(initial, context, result, sampling_batch):
-    # TODO: visualize context
     assert (
         initial.shape[0] == result.shape[0]
     ), "init and result must have same batch size"
-    multiple_col = 2  # initial, result
+    multiple_col = 3  # initial, context, result
 
     plt.figure(figsize=(10, 10 * multiple_col))
     clear_output()
@@ -540,35 +567,26 @@ def imshow(initial, context, result, sampling_batch):
     col_number = int(math.sqrt(sampling_batch))
 
     initial = initial[:sampling_batch].detach().cpu().numpy()
+    context = context[:sampling_batch].detach().cpu().numpy()
     result = result[:sampling_batch].detach().cpu().numpy()
-    B, C, H, W = result.shape
-    show_sample = np.zeros(
-        [row_number * H, col_number * W * multiple_col], dtype=np.float32
-    )
-    for row in range(row_number):
-        for col in range(col_number):
-            _initial = initial[row + col * row_number][0]
-            _result = result[row + col * row_number][0]
-            # display initial normalize b/w 0~225
-            show_sample[
-                row * H: (row + 1) * H,
-                col * W * multiple_col: (col * multiple_col + 1) * W,
-            ] = (
-                (_initial - _initial.min()) /
-                (_initial.max() - _initial.min()) * 255
-            )
-            # display result normalize b/w 0~225
-            show_sample[
-                row * H: (row + 1) * H,
-                (col * multiple_col + 1) * W: ((col + 1) * multiple_col) * W,
-            ] = (
-                (_result - _result.min()) /
-                (_result.max() - _result.min()) * 255
-            )
 
-    show_sample = show_sample.astype(np.uint8)
+    # convert the numpy array into PIL Image format
+    initial = np.transpose(initial, (0, 2, 3, 1))
+    context = np.transpose(context, (0, 2, 3, 1))
+    result = np.transpose(result, (0, 2, 3, 1))
+
+    # set up the plot
+    fig, axes = plt.subplots(row_number, col_number * multiple_col, figsize=(30, 10))
+    for i in range(row_number):
+        for j in range(col_number):
+            axes[i][j * multiple_col].imshow(initial[i * col_number + j], cmap="gray")
+            axes[i][j * multiple_col + 1].imshow(context[i * col_number + j])
+            axes[i][j * multiple_col + 2].imshow(result[i * col_number + j], cmap="gray")
+
+    for ax in axes.flatten():
+        ax.axis("off")
+
     plt.axis(False)
-    plt.imshow(show_sample, cmap="gray")
     plt.savefig(
         "./MNIST_diffusion/sample.png", format="png", bbox_inches="tight", pad_inches=0
     )
@@ -589,7 +607,7 @@ if __name__ == "__main__":
     ddpm_process.device = device
 
     dataset = instantiate(
-        OmegaConf.load("config/data/guide_mnist.yaml").dataset,
+        OmegaConf.load("config/data/context_guide_mnist.yaml").dataset,
         _convert_="all", # maintain python syntax
     )
 
@@ -600,11 +618,14 @@ if __name__ == "__main__":
         trn_dataset, batch_size=128, drop_last=True, num_workers=0
     )
 
+    # load resnet
+    context_model = resnet2().to(device)
+
     # train
-    train(ddpm_process, trn_loader, max_epochs=10)
+    train(ddpm_process, trn_loader, max_epochs=10, context_network=context_model)
 
     # inference
-    guide, result = inference(ddpm_process, sampling_batch=16, val_dataset=val_dataset)
+    guide, context, result = inference(ddpm_process, sampling_batch=16, val_dataset=val_dataset, context_network=context_model)
 
     # visualize
-    imshow(guide, None, result, 16)
+    imshow(guide, context, result, 16)

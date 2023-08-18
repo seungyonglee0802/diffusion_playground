@@ -9,3 +9,4 @@ MNIST/
 *.pth
 
 Pipfile
+.venv
