@@ -49,7 +49,11 @@ Model could generate MNIST image with given label (class) embedding.
 
 ### ✅ Demo 4: Add context condition in TransformerBlock
 
+* left: guide, middle: context, right: generated image
+
 1. Quarter (Top-Left) guide with class embedding and context condition
+
+Using simple `resnet` as context encoder.
 
 ![demo4](./MNIST_diffusion/sample_quater_guide_label_context.png)
 
