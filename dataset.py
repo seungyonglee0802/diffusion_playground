@@ -14,7 +14,7 @@ class MNISTDataset(Dataset):
 
     def __getitem__(self, index):
         img, label = self.dataset[index]
-        return img, None, label  # None for guide
+        return img, None, None, label  # img, guide, context, label
 
     def __len__(self):
         return len(self.dataset)
@@ -48,7 +48,7 @@ class GuidedMNISTDataset(Dataset):
         img, label = self.dataset[index]
         img = self.transform(img)
         guide = self.get_guide(img)
-        return img, guide, label
+        return img, guide, None, label # img, guide, context, label
 
     def __len__(self):
         return len(self.dataset)
